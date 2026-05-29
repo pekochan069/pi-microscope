@@ -30,6 +30,18 @@ describe("microscope config", () => {
     expect(result.options.shortcut).toBe(false);
   });
 
+  test("supports content grep as initial mode", () => {
+    const result = resolveMicroscopeOptions({ piMicroscope: { initialMode: "content-grep" } });
+
+    expect(result.warnings).toEqual([]);
+    expect(result.options.initialMode).toBe("content-grep");
+  });
+
+  test("includes default content grep keys", () => {
+    expect(DEFAULT_MICROSCOPE_OPTIONS.keys.contentGrepMode).toEqual(["ctrl+r"]);
+    expect(DEFAULT_MICROSCOPE_OPTIONS.keys.modeToggle).toEqual(["tab"]);
+  });
+
   test("normalizes Vim-style key notation", () => {
     expect(normalizeKeySequence("<C-g>")).toBe("ctrl+g");
     expect(normalizeKeySequence("<A-S-x>")).toBe("alt+shift+x");

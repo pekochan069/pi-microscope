@@ -26,12 +26,15 @@ export interface PickerUI {
   notify(message: string, type?: "info" | "warning" | "error"): void;
 }
 
-export type PickerMode = "project-files" | "git-changed";
+export type PickerMode = "project-files" | "git-changed" | "content-grep";
 
 export const PICKER_MODE_LABELS: Record<PickerMode, string> = {
   "project-files": "Project files",
   "git-changed": "Git changed",
+  "content-grep": "Content grep",
 };
+
+const PICKER_MODE_ORDER: PickerMode[] = ["project-files", "git-changed", "content-grep"];
 
 export type LoadCandidates = (mode: PickerMode, query: string) => Promise<FileSearchResult>;
 export type PreviewCandidate = (candidate: FileCandidate) => PreviewResult;
@@ -69,6 +72,11 @@ export function switchPickerMode(state: PickerState, mode: PickerMode): PickerSt
   return { mode, highlightedIndex: 0, selectedPaths: new Set() };
 }
 
+export function getNextPickerMode(mode: PickerMode): PickerMode {
+  const index = PICKER_MODE_ORDER.indexOf(mode);
+  return PICKER_MODE_ORDER[(index + 1) % PICKER_MODE_ORDER.length]!;
+}
+
 export function toggleHighlightedCandidate(
   state: PickerState,
   candidates: FileCandidate[],
@@ -77,10 +85,11 @@ export function toggleHighlightedCandidate(
   if (!candidate) return state;
 
   const selectedPaths = new Set(state.selectedPaths);
-  if (selectedPaths.has(candidate.relativePath)) {
-    selectedPaths.delete(candidate.relativePath);
+  const selectionKey = getCandidateSelectionKey(candidate);
+  if (selectedPaths.has(selectionKey)) {
+    selectedPaths.delete(selectionKey);
   } else {
-    selectedPaths.add(candidate.relativePath);
+    selectedPaths.add(selectionKey);
   }
 
   return { ...state, selectedPaths };
@@ -97,7 +106,9 @@ export function confirmPickerSelection(
   if (candidates.length === 0) return undefined;
 
   if (state.selectedPaths.size > 0) {
-    return candidates.filter((candidate) => state.selectedPaths.has(candidate.relativePath));
+    return candidates.filter((candidate) =>
+      state.selectedPaths.has(getCandidateSelectionKey(candidate)),
+    );
   }
 
   const highlighted = candidates[state.highlightedIndex];
@@ -116,9 +127,9 @@ export function renderCandidateRows(
   return visibleCandidates.map((candidate, index) => {
     const candidateIndex = start + index;
     const pointer = candidateIndex === state.highlightedIndex ? ">" : " ";
-    const marker = state.selectedPaths.has(candidate.relativePath) ? "[x]" : "[ ]";
+    const marker = state.selectedPaths.has(getCandidateSelectionKey(candidate)) ? "[x]" : "[ ]";
     const status = formatCandidateStatus(candidate);
-    const row = `${pointer} ${marker} ${status}${candidate.relativePath}${formatRename(candidate)}`;
+    const row = `${pointer} ${marker} ${status}${formatCandidateLabel(candidate)}`;
     return truncateToWidth(row, width);
   });
 }
@@ -169,7 +180,7 @@ export class MultiSelectPickerComponent implements Component {
   private requestId = 0;
 
   constructor(
-    private readonly query: string,
+    private query: string,
     private readonly loadCandidates: LoadCandidates,
     initialCandidates: FileCandidate[],
     private readonly options: PickFilesOptions,
@@ -201,6 +212,16 @@ export class MultiSelectPickerComponent implements Component {
       return;
     }
 
+    if (matchesAny(data, this.options.keys.contentGrepMode)) {
+      void this.setMode("content-grep");
+      return;
+    }
+
+    if (matchesAny(data, this.options.keys.modeToggle)) {
+      void this.setMode(getNextPickerMode(this.state.mode));
+      return;
+    }
+
     if (matchesAny(data, this.options.keys.toggleSelect)) {
       this.state = toggleHighlightedCandidate(this.state, this.candidates);
       return;
@@ -213,6 +234,20 @@ export class MultiSelectPickerComponent implements Component {
 
     if (matchesAny(data, this.options.keys.cancel)) {
       this.done(undefined);
+      return;
+    }
+
+    if (isBackspace(data)) {
+      if (this.query.length === 0) return;
+      this.query = this.query.slice(0, -1);
+      void this.reloadCandidates();
+      return;
+    }
+
+    const text = getPrintableInput(data);
+    if (text) {
+      this.query += text;
+      void this.reloadCandidates();
     }
   }
 
@@ -226,7 +261,7 @@ export class MultiSelectPickerComponent implements Component {
         ? renderCandidateRows(this.candidates, this.state, safeWidth, 12)
         : [truncateToWidth(this.message || "No files", safeWidth)];
     const preview = this.renderPreview(safeWidth);
-    const footer = `${this.options.keys.projectMode[0]} project • ${this.options.keys.gitChangedMode[0]} git • ↑↓/Ctrl-N/P move • Space select • Enter insert • Esc cancel`;
+    const footer = `Type search • Backspace edit • ${this.options.keys.modeToggle[0]} next • ${this.options.keys.projectMode[0]} project • ${this.options.keys.gitChangedMode[0]} git • ${this.options.keys.contentGrepMode[0]} grep • ↑↓ move • Space select • Enter insert • Esc cancel`;
 
     return [
       truncateToWidth(header, safeWidth),
@@ -242,8 +277,14 @@ export class MultiSelectPickerComponent implements Component {
   private async setMode(mode: PickerMode): Promise<void> {
     if (mode === this.state.mode) return;
 
-    const requestId = ++this.requestId;
     this.state = switchPickerMode(this.state, mode);
+    await this.reloadCandidates();
+  }
+
+  private async reloadCandidates(): Promise<void> {
+    const requestId = ++this.requestId;
+    const mode = this.state.mode;
+    this.state = { ...this.state, highlightedIndex: 0, selectedPaths: new Set() };
     this.candidates = [];
     this.message = `Loading ${PICKER_MODE_LABELS[mode]}…`;
     this.requestRender();
@@ -270,8 +311,10 @@ export class MultiSelectPickerComponent implements Component {
     const result = this.options.preview(candidate);
     if (result.status === "unavailable") return [truncateToWidth(result.message, width)];
 
+    const startLine = result.startLine ?? 1;
     const lines = result.lines.slice(0, 6).map((line, index) => {
-      const numbered = `${String(index + 1).padStart(3, " ")}  ${line}`;
+      const lineNumber = startLine + index;
+      const numbered = `${String(lineNumber).padStart(3, " ")}  ${line}`;
       return truncateToWidth(numbered, width);
     });
     if (result.truncated) lines.push(truncateToWidth("…", width));
@@ -287,13 +330,17 @@ export function pickerOptionsFromMicroscope(options: MicroscopeOptions): PickFil
 }
 
 function validateCandidates(ui: PickerUI, candidates: FileCandidate[]): boolean {
-  const paths = candidates.map((candidate) => candidate.relativePath);
-  if (new Set(paths).size !== paths.length) {
-    ui.notify("File picker received duplicate paths", "error");
+  const keys = candidates.map(getCandidateSelectionKey);
+  if (new Set(keys).size !== keys.length) {
+    ui.notify("File picker received duplicate result rows", "error");
     return false;
   }
 
   return true;
+}
+
+function getCandidateSelectionKey(candidate: FileCandidate): string {
+  return candidate.rowKey ?? candidate.relativePath;
 }
 
 function formatCandidateStatus(candidate: FileCandidate): string {
@@ -307,12 +354,30 @@ function formatCandidateStatus(candidate: FileCandidate): string {
   return labels[candidate.changeType];
 }
 
+function formatCandidateLabel(candidate: FileCandidate): string {
+  if (candidate.lineNumber !== undefined) {
+    return `${candidate.relativePath}:${candidate.lineNumber} ${candidate.lineSnippet ?? ""}`.trimEnd();
+  }
+
+  return `${candidate.relativePath}${formatRename(candidate)}`;
+}
+
 function formatRename(candidate: FileCandidate): string {
   return candidate.originalPath ? ` ← ${candidate.originalPath}` : "";
 }
 
 function matchesAny(data: string, keys: KeyId[]): boolean {
   return keys.some((key) => matchesKey(data, key));
+}
+
+function isBackspace(data: string): boolean {
+  return data === "\u007f" || data === "\b";
+}
+
+function getPrintableInput(data: string): string | undefined {
+  if (data.length === 0) return undefined;
+  if ([...data].some((char) => char < " " || char === "\u007f")) return undefined;
+  return data;
 }
 
 function getViewportStart(

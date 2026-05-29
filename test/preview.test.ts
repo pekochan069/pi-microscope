@@ -33,7 +33,45 @@ describe("previewFile", () => {
         status: "ok",
         lines: ["one", "two"],
         truncated: true,
+        startLine: 1,
       });
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test("centers preview around match line", () => {
+    const repo = tempRepo();
+    try {
+      writeFileSync(join(repo.dir, "src", "index.ts"), "one\ntwo\nthree\nfour\nfive");
+      expect(
+        previewFile(
+          repo.dir,
+          { ...baseCandidate, lineNumber: 4 },
+          {
+            enabled: true,
+            maxBytes: 100,
+            maxLines: 3,
+          },
+        ),
+      ).toEqual({
+        status: "ok",
+        lines: ["three", "four", "five"],
+        truncated: true,
+        startLine: 3,
+      });
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  test("reports binary preview unavailable", () => {
+    const repo = tempRepo();
+    try {
+      writeFileSync(join(repo.dir, "src", "index.ts"), Buffer.from([1, 0, 2]));
+      expect(
+        previewFile(repo.dir, baseCandidate, { enabled: true, maxBytes: 100, maxLines: 10 }),
+      ).toEqual({ status: "unavailable", message: "Preview unavailable: binary file" });
     } finally {
       repo.cleanup();
     }

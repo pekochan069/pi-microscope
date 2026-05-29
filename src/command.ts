@@ -38,6 +38,7 @@ export function createMicroscopeHandler(deps: MicroscopeDependencies) {
     const query = args.trim();
     const loadCandidates = (mode: PickerMode, currentQuery: string) => {
       if (mode === "git-changed") return deps.gitChanged.search(currentQuery);
+      if (mode === "content-grep") return deps.finder.grep(currentQuery);
       return deps.finder.search(currentQuery);
     };
 
@@ -67,16 +68,29 @@ export function insertReferencesIntoEditor(
   relativePaths: string[],
 ): void {
   const currentText = ctx.ui.getEditorText();
-  const nextText = insertPathReferences(currentText, relativePaths);
+  const nextText = insertPathReferences(currentText, dedupeRelativePaths(relativePaths));
   ctx.ui.setEditorText(nextText);
 }
 
 function getInsertedMessage(candidates: FileCandidate[]): string {
-  if (candidates.length === 1) {
-    return `Inserted @${normalizePathReference(candidates[0]!.relativePath)}`;
+  const paths = dedupeRelativePaths(candidates.map((candidate) => candidate.relativePath));
+  if (paths.length === 1) {
+    return `Inserted @${normalizePathReference(paths[0]!)}`;
   }
 
-  return `Inserted ${candidates.length} file references`;
+  return `Inserted ${paths.length} file references`;
+}
+
+function dedupeRelativePaths(relativePaths: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const path of relativePaths) {
+    const normalized = normalizePathReference(path);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    deduped.push(normalized);
+  }
+  return deduped;
 }
 
 function getErrorMessage(error: unknown): string {

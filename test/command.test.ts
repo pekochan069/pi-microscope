@@ -30,16 +30,24 @@ const renamedCandidate: FileCandidate = {
   originalPath: "src/old.ts",
 };
 
-function createFinder(result: FileSearchResult): FinderService {
+function createFinder(
+  result: FileSearchResult,
+  grepResult: FileSearchResult = result,
+): FinderService {
   return {
     search: async () => result,
+    grep: async () => grepResult,
     destroy: () => {},
   };
 }
 
-function createDependencies(result: FileSearchResult, gitResult: FileSearchResult = result) {
+function createDependencies(
+  result: FileSearchResult,
+  gitResult: FileSearchResult = result,
+  grepResult: FileSearchResult = result,
+) {
   return {
-    finder: createFinder(result),
+    finder: createFinder(result, grepResult),
     gitChanged: { search: async () => gitResult },
     options: DEFAULT_MICROSCOPE_OPTIONS,
     basePath: "/repo",
@@ -92,6 +100,51 @@ describe("createMicroscopeHandler", () => {
 
   test("multiple selected results mutate editor once and preserve prompt text", async () => {
     const picker: PickFiles = async () => [candidate, secondCandidate];
+    const command = createMicroscopeHandler({
+      ...createDependencies({ status: "ok", candidates: [candidate, secondCandidate] }),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("src", state.ctx);
+
+    expect(state.setEditorTextCalls).toEqual(["inspect @src/index.ts @src/finder.ts"]);
+    expect(state.notifications).toEqual([{ message: "Inserted 2 file references", type: "info" }]);
+  });
+
+  test("content-grep result inserts matched file path", async () => {
+    const grepCandidate: FileCandidate = {
+      ...candidate,
+      lineNumber: 12,
+      lineSnippet: "createMicroscopeHandler",
+      rowKey: "src/index.ts:12:0:120:0",
+    };
+    const picker: PickFiles = async (_ui, loadCandidates) => {
+      const result = await loadCandidates("content-grep", "createMicroscopeHandler");
+      return result.status === "ok" ? [result.candidates[0]!] : undefined;
+    };
+    const command = createMicroscopeHandler({
+      ...createDependencies(
+        { status: "ok", candidates: [candidate] },
+        { status: "ok", candidates: [renamedCandidate] },
+        { status: "ok", candidates: [grepCandidate] },
+      ),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("createMicroscopeHandler", state.ctx);
+
+    expect(state.setEditorTextCalls).toEqual(["inspect @src/index.ts"]);
+    expect(state.notifications).toEqual([{ message: "Inserted @src/index.ts", type: "info" }]);
+  });
+
+  test("duplicate content-grep rows insert one file reference", async () => {
+    const picker: PickFiles = async () => [
+      { ...candidate, lineNumber: 10, rowKey: "src/index.ts:10:0:100:0" },
+      { ...candidate, lineNumber: 20, rowKey: "src/index.ts:20:0:200:1" },
+      secondCandidate,
+    ];
     const command = createMicroscopeHandler({
       ...createDependencies({ status: "ok", candidates: [candidate, secondCandidate] }),
       pickFiles: picker,

@@ -90,13 +90,8 @@ unsubscribeTerminalInput = ctx.ui.onTerminalInput((data) => {
 `src/picker.ts` now accepts a render callback from the Pi custom UI factory:
 
 ```ts
-new MultiSelectPickerComponent(
-  query,
-  loadCandidates,
-  initial.candidates,
-  options,
-  done,
-  () => tui.requestRender(true),
+new MultiSelectPickerComponent(query, loadCandidates, initial.candidates, options, done, () =>
+  tui.requestRender(true),
 );
 ```
 
