@@ -7,6 +7,7 @@ import {
   MultiSelectPickerComponent,
   confirmPickerSelection,
   createPickerState,
+  getNextPickerMode,
   getSelectedCount,
   moveHighlight,
   pickFiles,
@@ -20,6 +21,36 @@ const candidates: FileCandidate[] = [
   { relativePath: "README.md", fileName: "README.md", gitStatus: "clean", size: 1 },
   { relativePath: "src/index.ts", fileName: "index.ts", gitStatus: "modified", size: 2 },
   { relativePath: "src/finder.ts", fileName: "finder.ts", gitStatus: "clean", size: 3 },
+];
+
+const grepCandidates: FileCandidate[] = [
+  {
+    relativePath: "src/index.ts",
+    fileName: "index.ts",
+    gitStatus: "clean",
+    size: 2,
+    lineNumber: 10,
+    lineSnippet: "export function run() {}",
+    rowKey: "src/index.ts:10:0:100:0",
+  },
+  {
+    relativePath: "src/index.ts",
+    fileName: "index.ts",
+    gitStatus: "clean",
+    size: 2,
+    lineNumber: 20,
+    lineSnippet: "run();",
+    rowKey: "src/index.ts:20:0:200:1",
+  },
+  {
+    relativePath: "src/picker.ts",
+    fileName: "picker.ts",
+    gitStatus: "clean",
+    size: 3,
+    lineNumber: 30,
+    lineSnippet: "renderCandidateRows(candidates)",
+    rowKey: "src/picker.ts:30:0:300:2",
+  },
 ];
 
 const changedCandidates: FileCandidate[] = [
@@ -98,6 +129,12 @@ describe("picker state", () => {
     expect(next.selectedPaths.size).toBe(0);
   });
 
+  test("mode order cycles through project, git, grep", () => {
+    expect(getNextPickerMode("project-files")).toBe("git-changed");
+    expect(getNextPickerMode("git-changed")).toBe("content-grep");
+    expect(getNextPickerMode("content-grep")).toBe("project-files");
+  });
+
   test("rendered rows preserve exact paths with selected markers", () => {
     const selectedState = toggleHighlightedCandidate(createPickerState(), candidates);
 
@@ -112,6 +149,25 @@ describe("picker state", () => {
     expect(renderCandidateRows(changedCandidates, createPickerState("git-changed"), 80)).toEqual([
       "> [ ] M src/index.ts",
       "  [ ] R src/new.ts ← src/old.ts",
+    ]);
+  });
+
+  test("rendered grep rows include line numbers and snippets", () => {
+    expect(
+      renderCandidateRows(grepCandidates.slice(0, 2), createPickerState("content-grep"), 80),
+    ).toEqual(["> [ ] src/index.ts:10 export function run() {}", "  [ ] src/index.ts:20 run();"]);
+  });
+
+  test("duplicate-path grep rows can be selected independently", () => {
+    let state = createPickerState("content-grep");
+    state = toggleHighlightedCandidate(state, grepCandidates);
+    state = moveHighlight(state, grepCandidates, 1);
+    state = toggleHighlightedCandidate(state, grepCandidates);
+
+    expect(getSelectedCount(state)).toBe(2);
+    expect(confirmPickerSelection(state, grepCandidates)).toEqual([
+      grepCandidates[0]!,
+      grepCandidates[1]!,
     ]);
   });
 });
@@ -152,7 +208,7 @@ describe("pickFiles", () => {
     expect(ui.notifications).toEqual(['No files matched "none"']);
   });
 
-  test("refuses duplicate display paths", async () => {
+  test("refuses duplicate result rows", async () => {
     const ui = createUI([candidates[0] as FileCandidate]);
 
     await expect(
@@ -161,7 +217,7 @@ describe("pickFiles", () => {
         keys: DEFAULT_MICROSCOPE_OPTIONS.keys,
       }),
     ).resolves.toBeUndefined();
-    expect(ui.notifications).toEqual(["File picker received duplicate paths"]);
+    expect(ui.notifications).toEqual(["File picker received duplicate result rows"]);
   });
 
   test("notifies when custom UI is unavailable", async () => {
@@ -179,13 +235,15 @@ describe("pickFiles", () => {
 });
 
 describe("MultiSelectPickerComponent", () => {
-  test("ctrl+g loads git-changed mode and ctrl+f loads project mode", async () => {
+  test("mode keys load git, grep, and project modes", async () => {
     const modes: string[] = [];
     const component = new MultiSelectPickerComponent(
       "src",
       async (mode) => {
         modes.push(mode);
-        return mode === "git-changed" ? ok(changedCandidates) : ok(candidates);
+        if (mode === "git-changed") return ok(changedCandidates);
+        if (mode === "content-grep") return ok(grepCandidates);
+        return ok(candidates);
       },
       candidates,
       { initialMode: "project-files", keys: DEFAULT_MICROSCOPE_OPTIONS.keys },
@@ -197,9 +255,71 @@ describe("MultiSelectPickerComponent", () => {
     expect(component.render(80)[0]).toContain("Git changed");
     expect(component.render(80).join("\n")).toContain("M src/index.ts");
 
+    component.handleInput("\u0012");
+    await Promise.resolve();
+    expect(component.render(80)[0]).toContain("Content grep");
+    expect(component.render(80).join("\n")).toContain("src/index.ts:10");
+
     component.handleInput("\u0006");
     await Promise.resolve();
     expect(component.render(80)[0]).toContain("Project files");
-    expect(modes).toEqual(["git-changed", "project-files"]);
+    expect(modes).toEqual(["git-changed", "content-grep", "project-files"]);
+  });
+
+  test("typing updates query and reloads current mode", async () => {
+    const calls: Array<{ mode: string; query: string }> = [];
+    const component = new MultiSelectPickerComponent(
+      "",
+      async (mode, query) => {
+        calls.push({ mode, query });
+        return ok(candidates.filter((candidate) => candidate.relativePath.includes(query)));
+      },
+      candidates,
+      { initialMode: "project-files", keys: DEFAULT_MICROSCOPE_OPTIONS.keys },
+      () => {},
+    );
+
+    component.handleInput("s");
+    await Promise.resolve();
+    expect(component.render(80)[0]).toContain("Query: s");
+
+    component.handleInput("r");
+    await Promise.resolve();
+    expect(component.render(80)[0]).toContain("Query: sr");
+
+    component.handleInput("\u007f");
+    await Promise.resolve();
+    expect(component.render(80)[0]).toContain("Query: s");
+    expect(calls).toEqual([
+      { mode: "project-files", query: "s" },
+      { mode: "project-files", query: "sr" },
+      { mode: "project-files", query: "s" },
+    ]);
+  });
+
+  test("tab cycles through all picker modes", async () => {
+    const modes: string[] = [];
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async (mode) => {
+        modes.push(mode);
+        if (mode === "git-changed") return ok(changedCandidates);
+        if (mode === "content-grep") return ok(grepCandidates);
+        return ok(candidates);
+      },
+      candidates,
+      { initialMode: "project-files", keys: DEFAULT_MICROSCOPE_OPTIONS.keys },
+      () => {},
+    );
+
+    component.handleInput("\t");
+    await Promise.resolve();
+    component.handleInput("\t");
+    await Promise.resolve();
+    component.handleInput("\t");
+    await Promise.resolve();
+
+    expect(component.render(80)[0]).toContain("Project files");
+    expect(modes).toEqual(["git-changed", "content-grep", "project-files"]);
   });
 });

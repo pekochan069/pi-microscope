@@ -6,7 +6,7 @@ import type { FileCandidate } from "./finder.ts";
 import { normalizePathReference } from "./editor.ts";
 
 export type PreviewResult =
-  | { status: "ok"; lines: string[]; truncated: boolean }
+  | { status: "ok"; lines: string[]; truncated: boolean; startLine?: number }
   | { status: "unavailable"; message: string };
 
 export interface PreviewOptions {
@@ -51,12 +51,34 @@ export function previewFile(
 
     const text = bytes.toString("utf8");
     const allLines = text.split(/\r?\n/);
-    const lines = allLines.slice(0, options.maxLines);
-    const truncated = stats.size > options.maxBytes || allLines.length > options.maxLines;
-    return { status: "ok", lines, truncated };
+    const window = getPreviewWindow(allLines.length, options.maxLines, candidate.lineNumber);
+    const lines = allLines.slice(window.startIndex, window.endIndex);
+    const truncated =
+      stats.size > options.maxBytes || window.startIndex > 0 || window.endIndex < allLines.length;
+    return { status: "ok", lines, truncated, startLine: window.startLine };
   } catch (error) {
     return { status: "unavailable", message: `Preview unavailable: ${getPreviewError(error)}` };
   }
+}
+
+function getPreviewWindow(
+  lineCount: number,
+  maxLines: number,
+  targetLine?: number,
+): { startIndex: number; endIndex: number; startLine: number } {
+  if (targetLine === undefined) {
+    return { startIndex: 0, endIndex: Math.min(lineCount, maxLines), startLine: 1 };
+  }
+
+  const safeTarget = Math.min(lineCount, Math.max(1, targetLine));
+  const halfWindow = Math.floor(maxLines / 2);
+  const maxStart = Math.max(0, lineCount - maxLines);
+  const startIndex = Math.min(maxStart, Math.max(0, safeTarget - 1 - halfWindow));
+  return {
+    startIndex,
+    endIndex: Math.min(lineCount, startIndex + maxLines),
+    startLine: startIndex + 1,
+  };
 }
 
 function getPreviewError(error: unknown): string {

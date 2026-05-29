@@ -9,6 +9,8 @@ import type { PickerMode } from "./picker.ts";
 export interface MicroscopeKeys {
   projectMode: KeyId[];
   gitChangedMode: KeyId[];
+  contentGrepMode: KeyId[];
+  modeToggle: KeyId[];
   up: KeyId[];
   down: KeyId[];
   toggleSelect: KeyId[];
@@ -45,7 +47,7 @@ type PartialMicroscopeOptions = Partial<Omit<MicroscopeOptions, "keys" | "previe
   preview?: Partial<MicroscopePreviewOptions>;
 };
 
-const MODES = new Set<PickerMode>(["project-files", "git-changed"]);
+const MODES = new Set<PickerMode>(["project-files", "git-changed", "content-grep"]);
 
 export const DEFAULT_MICROSCOPE_OPTIONS: MicroscopeOptions = Object.freeze({
   shortcut: "ctrl+f",
@@ -54,6 +56,8 @@ export const DEFAULT_MICROSCOPE_OPTIONS: MicroscopeOptions = Object.freeze({
   keys: Object.freeze({
     projectMode: Object.freeze(["ctrl+f"]),
     gitChangedMode: Object.freeze(["ctrl+g"]),
+    contentGrepMode: Object.freeze(["ctrl+r"]),
+    modeToggle: Object.freeze(["tab"]),
     up: Object.freeze(["up", "ctrl+p"]),
     down: Object.freeze(["down", "ctrl+n"]),
     toggleSelect: Object.freeze(["space"]),
@@ -118,6 +122,8 @@ function cloneDefaultOptions(): MicroscopeOptions {
     keys: {
       projectMode: [...DEFAULT_MICROSCOPE_OPTIONS.keys.projectMode],
       gitChangedMode: [...DEFAULT_MICROSCOPE_OPTIONS.keys.gitChangedMode],
+      contentGrepMode: [...DEFAULT_MICROSCOPE_OPTIONS.keys.contentGrepMode],
+      modeToggle: [...DEFAULT_MICROSCOPE_OPTIONS.keys.modeToggle],
       up: [...DEFAULT_MICROSCOPE_OPTIONS.keys.up],
       down: [...DEFAULT_MICROSCOPE_OPTIONS.keys.down],
       toggleSelect: [...DEFAULT_MICROSCOPE_OPTIONS.keys.toggleSelect],
@@ -154,7 +160,9 @@ function parsePiMicroscope(
     if (typeof value.initialMode === "string" && MODES.has(value.initialMode as PickerMode)) {
       partial.initialMode = value.initialMode as PickerMode;
     } else {
-      warnings.push(`${source}: piMicroscope.initialMode must be project-files or git-changed`);
+      warnings.push(
+        `${source}: piMicroscope.initialMode must be project-files, git-changed, or content-grep`,
+      );
     }
   }
 
