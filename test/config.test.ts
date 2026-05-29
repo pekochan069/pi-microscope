@@ -25,6 +25,16 @@ describe("microscope config", () => {
     expect(result.options.preview.maxBytes).toBe(DEFAULT_MICROSCOPE_OPTIONS.preview.maxBytes);
   });
 
+  test("supports context budget overrides and project precedence", () => {
+    const result = resolveMicroscopeOptions(
+      { piMicroscope: { contextBudget: { maxTokens: 12000 } } },
+      { piMicroscope: { contextBudget: { maxTokens: 32000 } } },
+    );
+
+    expect(result.warnings).toEqual([]);
+    expect(result.options.contextBudget.maxTokens).toBe(32000);
+  });
+
   test("supports disabling shortcut", () => {
     const result = resolveMicroscopeOptions({ piMicroscope: { shortcut: false } });
     expect(result.options.shortcut).toBe(false);
@@ -54,6 +64,7 @@ describe("microscope config", () => {
         pageSize: 0,
         keys: { projectMode: [] },
         preview: { maxBytes: -1, enabled: "yes" },
+        contextBudget: { maxTokens: 0 },
       },
     });
 
@@ -61,6 +72,7 @@ describe("microscope config", () => {
     expect(result.options.pageSize).toBe(DEFAULT_MICROSCOPE_OPTIONS.pageSize);
     expect(result.options.keys.projectMode).toEqual(DEFAULT_MICROSCOPE_OPTIONS.keys.projectMode);
     expect(result.options.preview).toEqual(DEFAULT_MICROSCOPE_OPTIONS.preview);
+    expect(result.options.contextBudget).toEqual(DEFAULT_MICROSCOPE_OPTIONS.contextBudget);
     expect(result.warnings.length).toBeGreaterThan(0);
   });
 });

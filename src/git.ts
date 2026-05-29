@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { basename } from "node:path";
+import { statSync } from "node:fs";
+import { basename, join } from "node:path";
 
 import type { FileCandidate, FileSearchResult } from "./finder.ts";
 
@@ -19,7 +20,10 @@ export class GitChangedService {
     const result = await this.executor(this.basePath);
     if (!result.ok) return { status: "error", message: result.error };
 
-    const candidates = filterChangedCandidates(parseGitStatusPorcelain(result.stdout), query);
+    const candidates = withChangedFileSizes(
+      filterChangedCandidates(parseGitStatusPorcelain(result.stdout), query),
+      this.basePath,
+    );
     if (candidates.length === 0) {
       return {
         status: "empty",
@@ -88,6 +92,23 @@ export function filterChangedCandidates(
   return candidates.filter((candidate) => {
     const haystack = `${candidate.relativePath} ${candidate.originalPath ?? ""}`.toLowerCase();
     return haystack.includes(trimmed) || isSubsequence(trimmed, haystack);
+  });
+}
+
+export function withChangedFileSizes(
+  candidates: FileCandidate[],
+  basePath: string,
+): FileCandidate[] {
+  return candidates.map((candidate) => {
+    if (candidate.readable === false) return candidate;
+
+    try {
+      const stats = statSync(join(basePath, candidate.relativePath));
+      if (!stats.isFile()) return { ...candidate, readable: false };
+      return { ...candidate, size: stats.size, readable: true };
+    } catch {
+      return { ...candidate, readable: false };
+    }
   });
 }
 

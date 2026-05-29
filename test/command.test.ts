@@ -112,6 +112,37 @@ describe("createMicroscopeHandler", () => {
     expect(state.notifications).toEqual([{ message: "Inserted 2 file references", type: "info" }]);
   });
 
+  test("duplicate project-file results insert one file reference in first occurrence order", async () => {
+    const picker: PickFiles = async () => [candidate, secondCandidate, { ...candidate }];
+    const command = createMicroscopeHandler({
+      ...createDependencies({ status: "ok", candidates: [candidate, secondCandidate] }),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("src", state.ctx);
+
+    expect(state.setEditorTextCalls).toEqual(["inspect @src/index.ts @src/finder.ts"]);
+    expect(state.notifications).toEqual([{ message: "Inserted 2 file references", type: "info" }]);
+  });
+
+  test("duplicate git-changed results insert one file reference", async () => {
+    const picker: PickFiles = async () => [renamedCandidate, { ...renamedCandidate }];
+    const command = createMicroscopeHandler({
+      ...createDependencies(
+        { status: "ok", candidates: [candidate] },
+        { status: "ok", candidates: [renamedCandidate] },
+      ),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("src", state.ctx);
+
+    expect(state.setEditorTextCalls).toEqual(["inspect @src/new.ts"]);
+    expect(state.notifications).toEqual([{ message: "Inserted @src/new.ts", type: "info" }]);
+  });
+
   test("content-grep result inserts matched file path", async () => {
     const grepCandidate: FileCandidate = {
       ...candidate,

@@ -58,14 +58,14 @@ const changedCandidates: FileCandidate[] = [
     relativePath: "src/index.ts",
     fileName: "index.ts",
     gitStatus: " M",
-    size: 0,
+    size: 8,
     changeType: "modified",
   },
   {
     relativePath: "src/new.ts",
     fileName: "new.ts",
     gitStatus: "R ",
-    size: 0,
+    size: 16,
     changeType: "renamed",
     originalPath: "src/old.ts",
   },
@@ -295,6 +295,96 @@ describe("MultiSelectPickerComponent", () => {
       { mode: "project-files", query: "sr" },
       { mode: "project-files", query: "s" },
     ]);
+  });
+
+  test("renders selected context budget and highlighted estimate", () => {
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(candidates),
+      candidates,
+      {
+        initialMode: "project-files",
+        keys: DEFAULT_MICROSCOPE_OPTIONS.keys,
+        contextBudget: { maxTokens: 1 },
+      },
+      () => {},
+    );
+
+    component.handleInput(" ");
+    const rendered = component.render(120).join("\n");
+
+    expect(rendered).toContain("Selected: 1");
+    expect(rendered).toContain("Context: 1 files • 1 B • ~1 tokens / ~1 tokens");
+    expect(rendered).toContain("Highlighted: 1 B • ~1 tokens");
+  });
+
+  test("renders over-budget warning for deduped grep selections", () => {
+    const component = new MultiSelectPickerComponent(
+      "run",
+      async () => ok(grepCandidates),
+      grepCandidates,
+      {
+        initialMode: "content-grep",
+        keys: DEFAULT_MICROSCOPE_OPTIONS.keys,
+        contextBudget: { maxTokens: 0 },
+      },
+      () => {},
+    );
+
+    component.handleInput(" ");
+    component.handleInput("\u001b[B");
+    component.handleInput(" ");
+    const rendered = component.render(120).join("\n");
+
+    expect(rendered).toContain("Selected: 1");
+    expect(rendered).toContain("Context: 1 files • 2 B • ~1 tokens / ~0 tokens");
+    expect(rendered).toContain("⚠ Selection exceeds context budget");
+  });
+
+  test("renders git-changed highlighted estimate", () => {
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(changedCandidates),
+      changedCandidates,
+      { initialMode: "git-changed", keys: DEFAULT_MICROSCOPE_OPTIONS.keys },
+      () => {},
+    );
+
+    expect(component.render(120).join("\n")).toContain("Highlighted: 8 B • ~2 tokens");
+  });
+
+  test("renders unavailable highlighted size", () => {
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(changedCandidates),
+      [{ ...changedCandidates[0]!, readable: false }],
+      { initialMode: "git-changed", keys: DEFAULT_MICROSCOPE_OPTIONS.keys },
+      () => {},
+    );
+
+    expect(component.render(120).join("\n")).toContain("Highlighted: size unavailable");
+  });
+
+  test("mode reload resets selected budget", async () => {
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async (mode) => {
+        if (mode === "git-changed") return ok(changedCandidates);
+        return ok(candidates);
+      },
+      candidates,
+      { initialMode: "project-files", keys: DEFAULT_MICROSCOPE_OPTIONS.keys },
+      () => {},
+    );
+
+    component.handleInput(" ");
+    expect(component.render(120).join("\n")).toContain("Selected: 1");
+
+    component.handleInput("\u0007");
+    await Promise.resolve();
+
+    expect(component.render(120).join("\n")).toContain("Selected: 0");
+    expect(component.render(120).join("\n")).toContain("Context: 0 files • 0 B");
   });
 
   test("tab cycles through all picker modes", async () => {

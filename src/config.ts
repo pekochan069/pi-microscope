@@ -24,12 +24,17 @@ export interface MicroscopePreviewOptions {
   maxLines: number;
 }
 
+export interface MicroscopeContextBudgetOptions {
+  maxTokens: number;
+}
+
 export interface MicroscopeOptions {
   shortcut: KeyId | false;
   initialMode: PickerMode;
   pageSize: number;
   keys: MicroscopeKeys;
   preview: MicroscopePreviewOptions;
+  contextBudget: MicroscopeContextBudgetOptions;
 }
 
 export interface MicroscopeConfigPaths {
@@ -42,9 +47,12 @@ export interface MicroscopeConfigLoadResult {
   warnings: string[];
 }
 
-type PartialMicroscopeOptions = Partial<Omit<MicroscopeOptions, "keys" | "preview">> & {
+type PartialMicroscopeOptions = Partial<
+  Omit<MicroscopeOptions, "keys" | "preview" | "contextBudget">
+> & {
   keys?: Partial<MicroscopeKeys>;
   preview?: Partial<MicroscopePreviewOptions>;
+  contextBudget?: Partial<MicroscopeContextBudgetOptions>;
 };
 
 const MODES = new Set<PickerMode>(["project-files", "git-changed", "content-grep"]);
@@ -68,6 +76,9 @@ export const DEFAULT_MICROSCOPE_OPTIONS: MicroscopeOptions = Object.freeze({
     enabled: true,
     maxBytes: 50_000,
     maxLines: 200,
+  }),
+  contextBudget: Object.freeze({
+    maxTokens: 24_000,
   }),
 }) as MicroscopeOptions;
 
@@ -131,6 +142,7 @@ function cloneDefaultOptions(): MicroscopeOptions {
       cancel: [...DEFAULT_MICROSCOPE_OPTIONS.keys.cancel],
     },
     preview: { ...DEFAULT_MICROSCOPE_OPTIONS.preview },
+    contextBudget: { ...DEFAULT_MICROSCOPE_OPTIONS.contextBudget },
   };
 }
 
@@ -184,6 +196,12 @@ function parsePiMicroscope(
   if ("preview" in value) {
     const parsed = parsePreview(value.preview, source);
     partial.preview = parsed.partial;
+    warnings.push(...parsed.warnings);
+  }
+
+  if ("contextBudget" in value) {
+    const parsed = parseContextBudget(value.contextBudget, source);
+    partial.contextBudget = parsed.partial;
     warnings.push(...parsed.warnings);
   }
 
@@ -244,12 +262,35 @@ function parsePreview(
   return { partial, warnings };
 }
 
+function parseContextBudget(
+  value: unknown,
+  source: string,
+): { partial: Partial<MicroscopeContextBudgetOptions>; warnings: string[] } {
+  const partial: Partial<MicroscopeContextBudgetOptions> = {};
+  const warnings: string[] = [];
+  if (!isRecord(value)) {
+    warnings.push(`${source}: piMicroscope.contextBudget must be an object`);
+    return { partial, warnings };
+  }
+
+  if ("maxTokens" in value) {
+    const maxTokens = value.maxTokens;
+    if (typeof maxTokens === "number" && Number.isInteger(maxTokens) && maxTokens > 0)
+      partial.maxTokens = maxTokens;
+    else
+      warnings.push(`${source}: piMicroscope.contextBudget.maxTokens must be a positive integer`);
+  }
+
+  return { partial, warnings };
+}
+
 function mergePartialOptions(options: MicroscopeOptions, partial: PartialMicroscopeOptions): void {
   if (partial.shortcut !== undefined) options.shortcut = partial.shortcut;
   if (partial.initialMode) options.initialMode = partial.initialMode;
   if (partial.pageSize) options.pageSize = partial.pageSize;
   if (partial.keys) Object.assign(options.keys, partial.keys);
   if (partial.preview) Object.assign(options.preview, partial.preview);
+  if (partial.contextBudget) Object.assign(options.contextBudget, partial.contextBudget);
 }
 
 function parseKeyArray(value: unknown): KeyId[] {

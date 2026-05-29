@@ -7,7 +7,7 @@ import type { PickerMode, PickerUI } from "./picker.ts";
 
 import { DEFAULT_MICROSCOPE_OPTIONS } from "./config.ts";
 import { insertPathReferences, normalizePathReference } from "./editor.ts";
-import { pickFiles as defaultPickFiles } from "./picker.ts";
+import { pickFiles as defaultPickFiles, pickerOptionsFromMicroscope } from "./picker.ts";
 import { previewFile } from "./preview.ts";
 
 export type PickFiles = (
@@ -43,8 +43,7 @@ export function createMicroscopeHandler(deps: MicroscopeDependencies) {
     };
 
     const selected = await pickFiles(ctx.ui as PickerUI, loadCandidates, query, {
-      initialMode: options.initialMode,
-      keys: options.keys,
+      ...pickerOptionsFromMicroscope(options),
       preview: (candidate) => previewFile(deps.basePath ?? ctx.cwd, candidate, options.preview),
     });
     if (!selected) return;

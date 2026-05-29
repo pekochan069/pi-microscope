@@ -1,6 +1,10 @@
 /// <reference types="bun-types/test-globals" />
 
-import { filterChangedCandidates, parseGitStatusPorcelain } from "../src/git.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { GitChangedService, filterChangedCandidates, parseGitStatusPorcelain } from "../src/git.ts";
 
 describe("parseGitStatusPorcelain", () => {
   test("parses modified added untracked deleted and renamed records", () => {
@@ -29,6 +33,39 @@ describe("parseGitStatusPorcelain", () => {
         originalPath: "src/old.ts",
       }),
     ]);
+  });
+});
+
+describe("GitChangedService", () => {
+  test("populates size metadata for readable changed files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-microscope-git-"));
+    try {
+      writeFileSync(join(dir, "changed.ts"), "12345678");
+      const service = new GitChangedService(dir, async () => ({
+        ok: true,
+        stdout: " M changed.ts\0 D deleted.ts\0",
+      }));
+
+      const result = await service.search("");
+
+      expect(result).toEqual({
+        status: "ok",
+        candidates: [
+          expect.objectContaining({
+            relativePath: "changed.ts",
+            size: 8,
+            readable: true,
+          }),
+          expect.objectContaining({
+            relativePath: "deleted.ts",
+            size: 0,
+            readable: false,
+          }),
+        ],
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

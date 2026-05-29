@@ -2,9 +2,15 @@ import type { Component, KeyId, TUI } from "@earendil-works/pi-tui";
 
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 
-import type { MicroscopeKeys, MicroscopeOptions } from "./config.ts";
+import type {
+  MicroscopeContextBudgetOptions,
+  MicroscopeKeys,
+  MicroscopeOptions,
+} from "./config.ts";
 import type { FileCandidate, FileSearchResult } from "./finder.ts";
 import type { PreviewResult } from "./preview.ts";
+
+import { createContextBudgetSummary, formatApproxTokens, formatBytes } from "./budget.ts";
 
 interface CustomPickerOptions {
   overlay: boolean;
@@ -48,6 +54,7 @@ export interface PickerState {
 export interface PickFilesOptions {
   initialMode: PickerMode;
   keys: MicroscopeKeys;
+  contextBudget?: MicroscopeContextBudgetOptions;
   preview?: PreviewCandidate;
 }
 
@@ -255,7 +262,9 @@ export class MultiSelectPickerComponent implements Component {
 
   render(width: number): string[] {
     const safeWidth = Math.max(20, width);
-    const header = `${PICKER_MODE_LABELS[this.state.mode]} • Query: ${this.query || "∅"} • Selected: ${getSelectedCount(this.state)}`;
+    const budget = this.getBudgetSummary();
+    const header = `${PICKER_MODE_LABELS[this.state.mode]} • Query: ${this.query || "∅"} • Selected: ${budget.selected.fileCount}`;
+    const budgetLines = this.renderBudgetLines(safeWidth, budget);
     const rows =
       this.candidates.length > 0
         ? renderCandidateRows(this.candidates, this.state, safeWidth, 12)
@@ -265,6 +274,7 @@ export class MultiSelectPickerComponent implements Component {
 
     return [
       truncateToWidth(header, safeWidth),
+      ...budgetLines,
       "─".repeat(Math.min(safeWidth, 80)),
       ...rows,
       "─".repeat(Math.min(safeWidth, 80)),
@@ -304,6 +314,36 @@ export class MultiSelectPickerComponent implements Component {
     this.requestRender();
   }
 
+  private getBudgetSummary() {
+    return createContextBudgetSummary({
+      selectedCandidates: getSelectedCandidates(this.state, this.candidates),
+      highlightedCandidate: this.candidates[this.state.highlightedIndex],
+      maxTokens: this.options.contextBudget?.maxTokens ?? 24_000,
+    });
+  }
+
+  private renderBudgetLines(
+    width: number,
+    budget: ReturnType<typeof createContextBudgetSummary>,
+  ): string[] {
+    const selected = `Context: ${budget.selected.fileCount} files • ${formatBytes(budget.selected.bytes)} • ~${formatApproxTokens(budget.selected.approxTokens)} / ~${formatApproxTokens(budget.maxTokens)}`;
+    const unknown =
+      budget.selected.unknownFileCount > 0
+        ? ` • ${budget.selected.unknownFileCount} unknown size`
+        : "";
+    const highlighted = budget.highlighted
+      ? `Highlighted: ${formatBytes(budget.highlighted.bytes)} • ~${formatApproxTokens(budget.highlighted.approxTokens)}`
+      : "Highlighted: size unavailable";
+    const lines = [
+      truncateToWidth(`${selected}${unknown}`, width),
+      truncateToWidth(highlighted, width),
+    ];
+    if (budget.isOverBudget) {
+      lines.push(truncateToWidth("⚠ Selection exceeds context budget", width));
+    }
+    return lines;
+  }
+
   private renderPreview(width: number): string[] {
     const candidate = this.candidates[this.state.highlightedIndex];
     if (!candidate || !this.options.preview) return [truncateToWidth("Preview unavailable", width)];
@@ -326,7 +366,15 @@ export function pickerOptionsFromMicroscope(options: MicroscopeOptions): PickFil
   return {
     initialMode: options.initialMode,
     keys: options.keys,
+    contextBudget: options.contextBudget,
   };
+}
+
+function getSelectedCandidates(state: PickerState, candidates: FileCandidate[]): FileCandidate[] {
+  if (state.selectedPaths.size === 0) return [];
+  return candidates.filter((candidate) =>
+    state.selectedPaths.has(getCandidateSelectionKey(candidate)),
+  );
 }
 
 function validateCandidates(ui: PickerUI, candidates: FileCandidate[]): boolean {
