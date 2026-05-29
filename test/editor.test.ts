@@ -1,6 +1,10 @@
 /// <reference types="bun-types/test-globals" />
 
-import { insertPathReference, normalizePathReference } from "../src/editor.ts";
+import {
+  insertPathReference,
+  insertPathReferences,
+  normalizePathReference,
+} from "../src/editor.ts";
 
 describe("insertPathReference", () => {
   test("inserts into empty editor", () => {
@@ -23,6 +27,36 @@ describe("insertPathReference", () => {
 
   test("preserves whitespace inside paths", () => {
     expect(insertPathReference("check", "docs/my file.md")).toBe("check @docs/my file.md");
+  });
+});
+
+describe("insertPathReferences", () => {
+  test("inserts multiple paths into empty editor in order", () => {
+    expect(insertPathReferences("", ["src/index.ts", "src/finder.ts"])).toBe(
+      "@src/index.ts @src/finder.ts",
+    );
+  });
+
+  test("adds one separating space before multiple paths for existing text", () => {
+    expect(insertPathReferences("inspect", ["src/index.ts", "src/finder.ts"])).toBe(
+      "inspect @src/index.ts @src/finder.ts",
+    );
+  });
+
+  test("does not add extra space before multiple paths after trailing whitespace", () => {
+    expect(insertPathReferences("inspect ", ["src/index.ts", "src/finder.ts"])).toBe(
+      "inspect @src/index.ts @src/finder.ts",
+    );
+  });
+
+  test("normalizes all paths before insertion", () => {
+    expect(insertPathReferences("see", ["./src\\index.ts", "test//picker.test.ts"])).toBe(
+      "see @src/index.ts @test/picker.test.ts",
+    );
+  });
+
+  test("rejects empty batch", () => {
+    expect(() => insertPathReferences("", [])).toThrow("At least one path reference is required");
   });
 });
 
