@@ -11,6 +11,9 @@ export interface FileCandidate {
   gitStatus: string;
   size: number;
   score?: number;
+  changeType?: "modified" | "added" | "deleted" | "renamed";
+  originalPath?: string;
+  readable?: boolean;
 }
 
 export type FileSearchResult =

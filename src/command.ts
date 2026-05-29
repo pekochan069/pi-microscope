@@ -1,24 +1,33 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import type { FileCandidate, FinderService } from "./finder.ts";
-import type { PickerUI } from "./picker.ts";
+import type { MicroscopeOptions } from "./config.ts";
+import type { FileCandidate, FileSearchResult, FinderService } from "./finder.ts";
+import type { GitChangedService } from "./git.ts";
+import type { PickerMode, PickerUI } from "./picker.ts";
 
+import { DEFAULT_MICROSCOPE_OPTIONS } from "./config.ts";
 import { insertPathReferences, normalizePathReference } from "./editor.ts";
 import { pickFiles as defaultPickFiles } from "./picker.ts";
+import { previewFile } from "./preview.ts";
 
 export type PickFiles = (
   ui: PickerUI,
-  candidates: FileCandidate[],
+  loadCandidates: (mode: PickerMode, query: string) => Promise<FileSearchResult>,
   query: string,
+  options: Parameters<typeof defaultPickFiles>[3],
 ) => Promise<FileCandidate[] | undefined>;
 
 export interface MicroscopeDependencies {
   finder: FinderService;
+  gitChanged: Pick<GitChangedService, "search">;
+  options?: MicroscopeOptions;
   pickFiles?: PickFiles;
+  basePath?: string;
 }
 
 export function createMicroscopeHandler(deps: MicroscopeDependencies) {
   const pickFiles = deps.pickFiles ?? defaultPickFiles;
+  const options = deps.options ?? DEFAULT_MICROSCOPE_OPTIONS;
 
   return async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
     if (!ctx.hasUI) {
@@ -27,18 +36,16 @@ export function createMicroscopeHandler(deps: MicroscopeDependencies) {
     }
 
     const query = args.trim();
-    const result = await deps.finder.search(query);
-    if (result.status === "error") {
-      ctx.ui.notify(`Could not search files: ${result.message}`, "error");
-      return;
-    }
+    const loadCandidates = (mode: PickerMode, currentQuery: string) => {
+      if (mode === "git-changed") return deps.gitChanged.search(currentQuery);
+      return deps.finder.search(currentQuery);
+    };
 
-    if (result.status === "empty") {
-      ctx.ui.notify(result.message, "warning");
-      return;
-    }
-
-    const selected = await pickFiles(ctx.ui as PickerUI, result.candidates, query);
+    const selected = await pickFiles(ctx.ui as PickerUI, loadCandidates, query, {
+      initialMode: options.initialMode,
+      keys: options.keys,
+      preview: (candidate) => previewFile(deps.basePath ?? ctx.cwd, candidate, options.preview),
+    });
     if (!selected) return;
 
     try {
