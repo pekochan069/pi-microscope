@@ -4,13 +4,20 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { FileCandidate, FinderService, FileSearchResult } from "../src/finder.ts";
 
-import { createMicroscopeHandler, type PickFile } from "../src/command.ts";
+import { createMicroscopeHandler, type PickFiles } from "../src/command.ts";
 
 const candidate: FileCandidate = {
   relativePath: "src/index.ts",
   fileName: "index.ts",
   gitStatus: "clean",
   size: 123,
+};
+
+const secondCandidate: FileCandidate = {
+  relativePath: "src/finder.ts",
+  fileName: "finder.ts",
+  gitStatus: "clean",
+  size: 456,
 };
 
 function createFinder(result: FileSearchResult): FinderService {
@@ -50,11 +57,11 @@ function createContext(hasUI = true, editorText = "hello") {
 }
 
 describe("createMicroscopeHandler", () => {
-  test("selected result mutates editor once and preserves prompt text", async () => {
-    const picker: PickFile = async () => candidate;
+  test("single selected result mutates editor once and preserves prompt text", async () => {
+    const picker: PickFiles = async () => [candidate];
     const command = createMicroscopeHandler({
       finder: createFinder({ status: "ok", candidates: [candidate] }),
-      pickFile: picker,
+      pickFiles: picker,
     });
     const state = createContext(true, "inspect");
 
@@ -64,11 +71,25 @@ describe("createMicroscopeHandler", () => {
     expect(state.notifications).toEqual([{ message: "Inserted @src/index.ts", type: "info" }]);
   });
 
+  test("multiple selected results mutate editor once and preserve prompt text", async () => {
+    const picker: PickFiles = async () => [candidate, secondCandidate];
+    const command = createMicroscopeHandler({
+      finder: createFinder({ status: "ok", candidates: [candidate, secondCandidate] }),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("src", state.ctx);
+
+    expect(state.setEditorTextCalls).toEqual(["inspect @src/index.ts @src/finder.ts"]);
+    expect(state.notifications).toEqual([{ message: "Inserted 2 file references", type: "info" }]);
+  });
+
   test("cancel path leaves editor unchanged", async () => {
-    const picker: PickFile = async () => undefined;
+    const picker: PickFiles = async () => undefined;
     const command = createMicroscopeHandler({
       finder: createFinder({ status: "ok", candidates: [candidate] }),
-      pickFile: picker,
+      pickFiles: picker,
     });
     const state = createContext(true, "keep");
 
@@ -104,6 +125,27 @@ describe("createMicroscopeHandler", () => {
     expect(state.setEditorTextCalls).toEqual([]);
     expect(state.notifications).toEqual([
       { message: "Could not search files: boom", type: "error" },
+    ]);
+  });
+
+  test("insert-error path leaves editor unchanged and notifies", async () => {
+    const invalidCandidate: FileCandidate = { ...candidate, relativePath: "../outside.ts" };
+    const picker: PickFiles = async () => [invalidCandidate];
+    const command = createMicroscopeHandler({
+      finder: createFinder({ status: "ok", candidates: [invalidCandidate] }),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "keep");
+
+    await command("src", state.ctx);
+
+    expect(state.text).toBe("keep");
+    expect(state.setEditorTextCalls).toEqual([]);
+    expect(state.notifications).toEqual([
+      {
+        message: "Could not insert file references: Path reference cannot escape the workspace",
+        type: "error",
+      },
     ]);
   });
 

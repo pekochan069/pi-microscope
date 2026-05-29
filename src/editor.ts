@@ -33,13 +33,20 @@ export function normalizePathReference(relativePath: string): string {
   return normalized;
 }
 
-export function insertPathReference(currentText: string, relativePath: string): string {
-  const normalizedPath = normalizePathReference(relativePath);
-  const reference = `@${normalizedPath}`;
-
-  if (currentText.length === 0 || /\s$/.test(currentText)) {
-    return `${currentText}${reference}`;
+export function insertPathReferences(currentText: string, relativePaths: string[]): string {
+  if (relativePaths.length === 0) {
+    throw new Error("At least one path reference is required");
   }
 
-  return `${currentText} ${reference}`;
+  const references = relativePaths.map((path) => `@${normalizePathReference(path)}`).join(" ");
+
+  if (currentText.length === 0 || /\s$/.test(currentText)) {
+    return `${currentText}${references}`;
+  }
+
+  return `${currentText} ${references}`;
+}
+
+export function insertPathReference(currentText: string, relativePath: string): string {
+  return insertPathReferences(currentText, [relativePath]);
 }
