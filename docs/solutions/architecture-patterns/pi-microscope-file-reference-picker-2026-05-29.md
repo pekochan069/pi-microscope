@@ -186,7 +186,10 @@ const selected = await pickFiles(ctx.ui, result.candidates, query);
 if (!selected) return;
 
 try {
-  insertReferencesIntoEditor(ctx, selected.map((candidate) => candidate.relativePath));
+  insertReferencesIntoEditor(
+    ctx,
+    selected.map((candidate) => candidate.relativePath),
+  );
 } catch (error) {
   ctx.ui.notify(`Could not insert file references: ${getErrorMessage(error)}`, "error");
   return;

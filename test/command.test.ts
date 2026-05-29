@@ -5,6 +5,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { FileCandidate, FinderService, FileSearchResult } from "../src/finder.ts";
 
 import { createMicroscopeHandler, type PickFiles } from "../src/command.ts";
+import { DEFAULT_MICROSCOPE_OPTIONS } from "../src/config.ts";
 
 const candidate: FileCandidate = {
   relativePath: "src/index.ts",
@@ -20,10 +21,28 @@ const secondCandidate: FileCandidate = {
   size: 456,
 };
 
+const renamedCandidate: FileCandidate = {
+  relativePath: "src/new.ts",
+  fileName: "new.ts",
+  gitStatus: "R ",
+  size: 0,
+  changeType: "renamed",
+  originalPath: "src/old.ts",
+};
+
 function createFinder(result: FileSearchResult): FinderService {
   return {
     search: async () => result,
     destroy: () => {},
+  };
+}
+
+function createDependencies(result: FileSearchResult, gitResult: FileSearchResult = result) {
+  return {
+    finder: createFinder(result),
+    gitChanged: { search: async () => gitResult },
+    options: DEFAULT_MICROSCOPE_OPTIONS,
+    basePath: "/repo",
   };
 }
 
@@ -60,7 +79,7 @@ describe("createMicroscopeHandler", () => {
   test("single selected result mutates editor once and preserves prompt text", async () => {
     const picker: PickFiles = async () => [candidate];
     const command = createMicroscopeHandler({
-      finder: createFinder({ status: "ok", candidates: [candidate] }),
+      ...createDependencies({ status: "ok", candidates: [candidate] }),
       pickFiles: picker,
     });
     const state = createContext(true, "inspect");
@@ -74,7 +93,7 @@ describe("createMicroscopeHandler", () => {
   test("multiple selected results mutate editor once and preserve prompt text", async () => {
     const picker: PickFiles = async () => [candidate, secondCandidate];
     const command = createMicroscopeHandler({
-      finder: createFinder({ status: "ok", candidates: [candidate, secondCandidate] }),
+      ...createDependencies({ status: "ok", candidates: [candidate, secondCandidate] }),
       pickFiles: picker,
     });
     const state = createContext(true, "inspect");
@@ -85,10 +104,30 @@ describe("createMicroscopeHandler", () => {
     expect(state.notifications).toEqual([{ message: "Inserted 2 file references", type: "info" }]);
   });
 
+  test("git-changed renamed result inserts target path", async () => {
+    const picker: PickFiles = async (_ui, loadCandidates) => {
+      const result = await loadCandidates("git-changed", "src");
+      return result.status === "ok" ? [result.candidates[0]!] : undefined;
+    };
+    const command = createMicroscopeHandler({
+      ...createDependencies(
+        { status: "ok", candidates: [candidate] },
+        { status: "ok", candidates: [renamedCandidate] },
+      ),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("src", state.ctx);
+
+    expect(state.setEditorTextCalls).toEqual(["inspect @src/new.ts"]);
+    expect(state.notifications).toEqual([{ message: "Inserted @src/new.ts", type: "info" }]);
+  });
+
   test("cancel path leaves editor unchanged", async () => {
     const picker: PickFiles = async () => undefined;
     const command = createMicroscopeHandler({
-      finder: createFinder({ status: "ok", candidates: [candidate] }),
+      ...createDependencies({ status: "ok", candidates: [candidate] }),
       pickFiles: picker,
     });
     const state = createContext(true, "keep");
@@ -101,9 +140,9 @@ describe("createMicroscopeHandler", () => {
   });
 
   test("no-result path leaves editor unchanged and notifies", async () => {
-    const command = createMicroscopeHandler({
-      finder: createFinder({ status: "empty", message: 'No files matched "none"' }),
-    });
+    const command = createMicroscopeHandler(
+      createDependencies({ status: "empty", message: 'No files matched "none"' }),
+    );
     const state = createContext(true, "keep");
 
     await command("none", state.ctx);
@@ -114,9 +153,9 @@ describe("createMicroscopeHandler", () => {
   });
 
   test("finder-error path leaves editor unchanged and notifies", async () => {
-    const command = createMicroscopeHandler({
-      finder: createFinder({ status: "error", message: "boom" }),
-    });
+    const command = createMicroscopeHandler(
+      createDependencies({ status: "error", message: "boom" }),
+    );
     const state = createContext(true, "keep");
 
     await command("src", state.ctx);
@@ -124,7 +163,7 @@ describe("createMicroscopeHandler", () => {
     expect(state.text).toBe("keep");
     expect(state.setEditorTextCalls).toEqual([]);
     expect(state.notifications).toEqual([
-      { message: "Could not search files: boom", type: "error" },
+      { message: "Could not load Project files: boom", type: "error" },
     ]);
   });
 
@@ -132,7 +171,7 @@ describe("createMicroscopeHandler", () => {
     const invalidCandidate: FileCandidate = { ...candidate, relativePath: "../outside.ts" };
     const picker: PickFiles = async () => [invalidCandidate];
     const command = createMicroscopeHandler({
-      finder: createFinder({ status: "ok", candidates: [invalidCandidate] }),
+      ...createDependencies({ status: "ok", candidates: [invalidCandidate] }),
       pickFiles: picker,
     });
     const state = createContext(true, "keep");
@@ -150,9 +189,9 @@ describe("createMicroscopeHandler", () => {
   });
 
   test("non-UI mode leaves editor unchanged and reports requirement", async () => {
-    const command = createMicroscopeHandler({
-      finder: createFinder({ status: "ok", candidates: [candidate] }),
-    });
+    const command = createMicroscopeHandler(
+      createDependencies({ status: "ok", candidates: [candidate] }),
+    );
     const state = createContext(false, "keep");
 
     await command("src", state.ctx);
