@@ -2,6 +2,10 @@
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { FileCandidate, FinderService, FileSearchResult } from "../src/finder.ts";
 
 import { createMicroscopeHandler, type PickFiles } from "../src/command.ts";
@@ -285,5 +289,44 @@ describe("createMicroscopeHandler", () => {
     expect(state.notifications).toEqual([
       { message: "/microscope requires interactive UI", type: "error" },
     ]);
+  });
+
+  test("wires saved context set storage to project root without mutating editor", async () => {
+    const project = mkdtempSync(join(tmpdir(), "pi-microscope-command-"));
+    const picker: PickFiles = async (_ui, _loadCandidates, _query, options) => {
+      options.contextSets?.save("ui", ["src/index.ts"]);
+      return undefined;
+    };
+    const command = createMicroscopeHandler({
+      ...createDependencies({ status: "ok", candidates: [candidate] }),
+      basePath: project,
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("src", state.ctx);
+
+    expect(state.text).toBe("inspect");
+    expect(state.setEditorTextCalls).toEqual([]);
+    expect(
+      JSON.parse(readFileSync(join(project, ".pi", "microscope", "context-sets.json"), "utf8")),
+    ).toMatchObject({
+      version: 1,
+      sets: [{ name: "ui", paths: ["src/index.ts"] }],
+    });
+  });
+
+  test("loaded saved set path insertion uses existing append spacing", async () => {
+    const picker: PickFiles = async () => ["src/index.ts", "src/finder.ts"];
+    const command = createMicroscopeHandler({
+      ...createDependencies({ status: "ok", candidates: [candidate, secondCandidate] }),
+      pickFiles: picker,
+    });
+    const state = createContext(true, "inspect");
+
+    await command("src", state.ctx);
+
+    expect(state.setEditorTextCalls).toEqual(["inspect @src/index.ts @src/finder.ts"]);
+    expect(state.notifications).toEqual([{ message: "Inserted 2 file references", type: "info" }]);
   });
 });

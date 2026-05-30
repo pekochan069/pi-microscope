@@ -1,11 +1,12 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { MicroscopeOptions } from "./config.ts";
-import type { FileCandidate, FileSearchResult, FinderService } from "./finder.ts";
+import type { FileSearchResult, FinderService } from "./finder.ts";
 import type { GitChangedService } from "./git.ts";
-import type { PickerMode, PickerUI } from "./picker.ts";
+import type { PickerMode, PickerUI, PickFilesResult } from "./picker.ts";
 
 import { DEFAULT_MICROSCOPE_OPTIONS } from "./config.ts";
+import { deleteContextSet, loadContextSets, saveContextSet } from "./context-sets.ts";
 import { insertPathReferences, normalizePathReference } from "./editor.ts";
 import { pickFiles as defaultPickFiles, pickerOptionsFromMicroscope } from "./picker.ts";
 import { previewFile } from "./preview.ts";
@@ -15,7 +16,7 @@ export type PickFiles = (
   loadCandidates: (mode: PickerMode, query: string) => Promise<FileSearchResult>,
   query: string,
   options: Parameters<typeof defaultPickFiles>[3],
-) => Promise<FileCandidate[] | undefined>;
+) => Promise<PickFilesResult | undefined>;
 
 export interface MicroscopeDependencies {
   finder: FinderService;
@@ -36,6 +37,7 @@ export function createMicroscopeHandler(deps: MicroscopeDependencies) {
     }
 
     const query = args.trim();
+    const projectRoot = deps.basePath ?? ctx.cwd;
     const loadCandidates = (mode: PickerMode, currentQuery: string) => {
       if (mode === "git-changed") return deps.gitChanged.search(currentQuery);
       if (mode === "content-grep") return deps.finder.grep(currentQuery);
@@ -44,21 +46,27 @@ export function createMicroscopeHandler(deps: MicroscopeDependencies) {
 
     const selected = await pickFiles(ctx.ui as PickerUI, loadCandidates, query, {
       ...pickerOptionsFromMicroscope(options),
-      preview: (candidate) => previewFile(deps.basePath ?? ctx.cwd, candidate, options.preview),
+      contextSets: {
+        list: () => loadContextSets(projectRoot).sets,
+        save: (name, paths) => saveContextSet(projectRoot, name, paths),
+        delete: (name) => deleteContextSet(projectRoot, name),
+      },
+      preview: (candidate) => previewFile(projectRoot, candidate, options.preview),
     });
     if (!selected) return;
 
+    const selectedPaths = selected.map((item) =>
+      typeof item === "string" ? item : item.relativePath,
+    );
+
     try {
-      insertReferencesIntoEditor(
-        ctx,
-        selected.map((candidate) => candidate.relativePath),
-      );
+      insertReferencesIntoEditor(ctx, selectedPaths);
     } catch (error) {
       ctx.ui.notify(`Could not insert file references: ${getErrorMessage(error)}`, "error");
       return;
     }
 
-    ctx.ui.notify(getInsertedMessage(selected), "info");
+    ctx.ui.notify(getInsertedMessage(selectedPaths), "info");
   };
 }
 
@@ -71,8 +79,8 @@ export function insertReferencesIntoEditor(
   ctx.ui.setEditorText(nextText);
 }
 
-function getInsertedMessage(candidates: FileCandidate[]): string {
-  const paths = dedupeRelativePaths(candidates.map((candidate) => candidate.relativePath));
+function getInsertedMessage(relativePaths: string[]): string {
+  const paths = dedupeRelativePaths(relativePaths);
   if (paths.length === 1) {
     return `Inserted @${normalizePathReference(paths[0]!)}`;
   }

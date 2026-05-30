@@ -1,8 +1,11 @@
 # context-budget-ui Specification
 
 ## Purpose
+
 TBD - created by archiving change add-context-budget-ui. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Selected context budget summary
 
 The picker SHALL show a context budget summary for the deduped file paths that would be inserted if the user confirmed the current selection.
@@ -98,4 +101,3 @@ Context budget summaries and warnings SHALL work consistently in project-file, g
 
 - **WHEN** an interactive user switches picker modes and selection state is cleared
 - **THEN** the selected context budget summary SHALL reset to zero selected files and zero estimated selected tokens
-

@@ -14,6 +14,9 @@ export interface MicroscopeKeys {
   up: KeyId[];
   down: KeyId[];
   toggleSelect: KeyId[];
+  saveContextSet: KeyId[];
+  loadContextSet: KeyId[];
+  deleteContextSet: KeyId[];
   confirm: KeyId[];
   cancel: KeyId[];
 }
@@ -69,6 +72,9 @@ export const DEFAULT_MICROSCOPE_OPTIONS: MicroscopeOptions = Object.freeze({
     up: Object.freeze(["up", "ctrl+p"]),
     down: Object.freeze(["down", "ctrl+n"]),
     toggleSelect: Object.freeze(["space"]),
+    saveContextSet: Object.freeze(["alt+s"]),
+    loadContextSet: Object.freeze(["alt+l"]),
+    deleteContextSet: Object.freeze(["alt+d"]),
     confirm: Object.freeze(["enter"]),
     cancel: Object.freeze(["escape", "ctrl+c"]),
   }) as MicroscopeKeys,
@@ -138,6 +144,9 @@ function cloneDefaultOptions(): MicroscopeOptions {
       up: [...DEFAULT_MICROSCOPE_OPTIONS.keys.up],
       down: [...DEFAULT_MICROSCOPE_OPTIONS.keys.down],
       toggleSelect: [...DEFAULT_MICROSCOPE_OPTIONS.keys.toggleSelect],
+      saveContextSet: [...DEFAULT_MICROSCOPE_OPTIONS.keys.saveContextSet],
+      loadContextSet: [...DEFAULT_MICROSCOPE_OPTIONS.keys.loadContextSet],
+      deleteContextSet: [...DEFAULT_MICROSCOPE_OPTIONS.keys.deleteContextSet],
       confirm: [...DEFAULT_MICROSCOPE_OPTIONS.keys.confirm],
       cancel: [...DEFAULT_MICROSCOPE_OPTIONS.keys.cancel],
     },

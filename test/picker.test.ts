@@ -12,6 +12,7 @@ import {
   moveHighlight,
   pickFiles,
   renderCandidateRows,
+  replaceSelectionWithPaths,
   switchPickerMode,
   toggleHighlightedCandidate,
   type PickerUI,
@@ -53,6 +54,13 @@ const grepCandidates: FileCandidate[] = [
   },
 ];
 
+const savedSetKeys = {
+  ...DEFAULT_MICROSCOPE_OPTIONS.keys,
+  saveContextSet: ["s" as const],
+  loadContextSet: ["l" as const],
+  deleteContextSet: ["d" as const],
+};
+
 const changedCandidates: FileCandidate[] = [
   {
     relativePath: "src/index.ts",
@@ -88,7 +96,7 @@ describe("picker state", () => {
   test("confirm returns highlighted candidate when nothing is selected", () => {
     const state = moveHighlight(createPickerState(), candidates, 1);
 
-    expect(confirmPickerSelection(state, candidates)).toEqual([candidates[1]!]);
+    expect(confirmPickerSelection(state, candidates)).toEqual(["src/index.ts"]);
   });
 
   test("toggles selected candidates and confirms them in candidate order", () => {
@@ -99,7 +107,7 @@ describe("picker state", () => {
     state = toggleHighlightedCandidate(state, candidates);
 
     expect(getSelectedCount(state)).toBe(2);
-    expect(confirmPickerSelection(state, candidates)).toEqual([candidates[1]!, candidates[2]!]);
+    expect(confirmPickerSelection(state, candidates)).toEqual(["src/index.ts", "src/finder.ts"]);
   });
 
   test("unselects a selected candidate", () => {
@@ -108,7 +116,7 @@ describe("picker state", () => {
     state = toggleHighlightedCandidate(state, candidates);
 
     expect(getSelectedCount(state)).toBe(0);
-    expect(confirmPickerSelection(state, candidates)).toEqual([candidates[0]!]);
+    expect(confirmPickerSelection(state, candidates)).toEqual(["README.md"]);
   });
 
   test("movement stays within candidate bounds", () => {
@@ -126,7 +134,8 @@ describe("picker state", () => {
 
     expect(next.mode).toBe("git-changed");
     expect(next.highlightedIndex).toBe(0);
-    expect(next.selectedPaths.size).toBe(0);
+    expect(next.selectedRowKeys.size).toBe(0);
+    expect(next.selectedReferencePaths).toEqual([]);
   });
 
   test("mode order cycles through project, git, grep", () => {
@@ -164,11 +173,16 @@ describe("picker state", () => {
     state = moveHighlight(state, grepCandidates, 1);
     state = toggleHighlightedCandidate(state, grepCandidates);
 
-    expect(getSelectedCount(state)).toBe(2);
-    expect(confirmPickerSelection(state, grepCandidates)).toEqual([
-      grepCandidates[0]!,
-      grepCandidates[1]!,
-    ]);
+    expect(state.selectedRowKeys.size).toBe(2);
+    expect(getSelectedCount(state)).toBe(1);
+    expect(confirmPickerSelection(state, grepCandidates)).toEqual(["src/index.ts"]);
+  });
+
+  test("loaded saved paths confirm even when not visible", () => {
+    const state = replaceSelectionWithPaths(createPickerState(), ["src/offscreen.ts"], candidates);
+
+    expect(getSelectedCount(state)).toBe(1);
+    expect(confirmPickerSelection(state, candidates)).toEqual(["src/offscreen.ts"]);
   });
 });
 
@@ -411,5 +425,312 @@ describe("MultiSelectPickerComponent", () => {
 
     expect(component.render(80)[0]).toContain("Project files");
     expect(modes).toEqual(["git-changed", "content-grep", "project-files"]);
+  });
+
+  test("saves selected project-file set without inserting", () => {
+    const saved: Array<{ name: string; paths: string[] }> = [];
+    const doneCalls: unknown[] = [];
+    const done = (value: unknown) => doneCalls.push(value);
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(candidates),
+      candidates,
+      {
+        initialMode: "project-files",
+        keys: savedSetKeys,
+        contextSets: {
+          list: () => [],
+          save: (name, paths) => {
+            saved.push({ name, paths });
+            return {
+              name,
+              paths,
+              bytes: 1,
+              approxTokens: 1,
+              unknownFileCount: 0,
+              updatedAt: "now",
+            };
+          },
+          delete: () => false,
+        },
+      },
+      done,
+    );
+
+    component.handleInput(" ");
+    component.handleInput("s");
+    component.handleInput("u");
+    component.handleInput("i");
+    component.handleInput("\r");
+
+    expect(saved).toEqual([{ name: "ui", paths: ["README.md"] }]);
+    expect(doneCalls).toEqual([]);
+    expect(component.render(120).join("\n")).toContain("Saved sets: 0");
+  });
+
+  test("saves selected git-changed set", () => {
+    const saved: string[][] = [];
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(changedCandidates),
+      changedCandidates,
+      {
+        initialMode: "git-changed",
+        keys: savedSetKeys,
+        contextSets: {
+          list: () => [],
+          save: (_name, paths) => {
+            saved.push(paths);
+            return {
+              name: "changed",
+              paths,
+              bytes: 8,
+              approxTokens: 2,
+              unknownFileCount: 0,
+              updatedAt: "now",
+            };
+          },
+          delete: () => false,
+        },
+      },
+      () => {},
+    );
+
+    component.handleInput(" ");
+    component.handleInput("s");
+    component.handleInput("c");
+    component.handleInput("\r");
+
+    expect(saved).toEqual([["src/index.ts"]]);
+  });
+
+  test("saves deduped content-grep set", () => {
+    const saved: string[][] = [];
+    const component = new MultiSelectPickerComponent(
+      "run",
+      async () => ok(grepCandidates),
+      grepCandidates,
+      {
+        initialMode: "content-grep",
+        keys: savedSetKeys,
+        contextSets: {
+          list: () => [],
+          save: (_name, paths) => {
+            saved.push(paths);
+            return {
+              name: "command",
+              paths,
+              bytes: 2,
+              approxTokens: 1,
+              unknownFileCount: 0,
+              updatedAt: "now",
+            };
+          },
+          delete: () => false,
+        },
+      },
+      () => {},
+    );
+
+    component.handleInput(" ");
+    component.handleInput("\u001b[B");
+    component.handleInput(" ");
+    component.handleInput("s");
+    component.handleInput("c");
+    component.handleInput("\r");
+
+    expect(saved).toEqual([["src/index.ts"]]);
+  });
+
+  test("loads saved set in project-file mode and inserts loaded paths", () => {
+    const doneCalls: unknown[] = [];
+    const done = (value: unknown) => doneCalls.push(value);
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(candidates),
+      candidates,
+      {
+        initialMode: "project-files",
+        keys: savedSetKeys,
+        contextSets: {
+          list: () => [
+            {
+              name: "ui",
+              paths: ["src/index.ts", "src/offscreen.ts"],
+              bytes: 4096,
+              approxTokens: 1024,
+              unknownFileCount: 0,
+              updatedAt: "now",
+            },
+          ],
+          save: () => {
+            throw new Error("unused");
+          },
+          delete: () => false,
+        },
+      },
+      done,
+    );
+
+    component.handleInput("l");
+    component.handleInput("\r");
+    component.handleInput("\r");
+
+    expect(doneCalls).toEqual([["src/index.ts", "src/offscreen.ts"]]);
+  });
+
+  test("loads saved set from git-changed mode and inserts loaded paths", () => {
+    const doneCalls: unknown[] = [];
+    const done = (value: unknown) => doneCalls.push(value);
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(changedCandidates),
+      changedCandidates,
+      {
+        initialMode: "git-changed",
+        keys: savedSetKeys,
+        contextSets: {
+          list: () => [
+            {
+              name: "ui",
+              paths: ["src/index.ts", "src/offscreen.ts"],
+              bytes: 4096,
+              approxTokens: 1024,
+              unknownFileCount: 0,
+              updatedAt: "now",
+            },
+          ],
+          save: () => {
+            throw new Error("unused");
+          },
+          delete: () => false,
+        },
+      },
+      done,
+    );
+
+    component.handleInput("l");
+    expect(component.render(120).join("\n")).toContain("ui • 2 files • 4 KB • ~1.0k tokens");
+    component.handleInput("\r");
+    component.handleInput("\r");
+
+    expect(doneCalls).toEqual([["src/index.ts", "src/offscreen.ts"]]);
+  });
+
+  test("loads saved set from content-grep mode when paths are not visible", () => {
+    const doneCalls: unknown[] = [];
+    const done = (value: unknown) => doneCalls.push(value);
+    const component = new MultiSelectPickerComponent(
+      "run",
+      async () => ok(grepCandidates),
+      grepCandidates,
+      {
+        initialMode: "content-grep",
+        keys: savedSetKeys,
+        contextSets: {
+          list: () => [
+            {
+              name: "api",
+              paths: ["src/api.ts"],
+              bytes: 0,
+              approxTokens: 0,
+              unknownFileCount: 1,
+              updatedAt: "now",
+            },
+          ],
+          save: () => {
+            throw new Error("unused");
+          },
+          delete: () => false,
+        },
+      },
+      done,
+    );
+
+    component.handleInput("l");
+    component.handleInput("\r");
+    component.handleInput("\r");
+
+    expect(doneCalls).toEqual([["src/api.ts"]]);
+  });
+
+  test("deletes saved set and updates saved-set count", () => {
+    let sets = [
+      {
+        name: "ui",
+        paths: ["src/index.ts"],
+        bytes: 5,
+        approxTokens: 2,
+        unknownFileCount: 1,
+        updatedAt: "now",
+      },
+      {
+        name: "api",
+        paths: ["src/api.ts"],
+        bytes: 4,
+        approxTokens: 1,
+        unknownFileCount: 0,
+        updatedAt: "now",
+      },
+    ];
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(candidates),
+      candidates,
+      {
+        initialMode: "project-files",
+        keys: savedSetKeys,
+        contextSets: {
+          list: () => sets,
+          save: () => {
+            throw new Error("unused");
+          },
+          delete: (name) => {
+            sets = sets.filter((set) => set.name !== name);
+            return true;
+          },
+        },
+      },
+      () => {},
+    );
+
+    expect(component.render(120)[0]).toContain("Saved sets: 2");
+    component.handleInput("d");
+    expect(component.render(120).join("\n")).toContain(
+      "ui • 1 files • 5 B • ~2 tokens • 1 unknown size",
+    );
+    component.handleInput("\r");
+
+    expect(sets.map((set) => set.name)).toEqual(["api"]);
+    expect(component.render(120)[0]).toContain("Saved sets: 1");
+  });
+
+  test("no saved sets to load/delete keeps selection unchanged", () => {
+    const notifications: string[] = [];
+    const component = new MultiSelectPickerComponent(
+      "src",
+      async () => ok(candidates),
+      candidates,
+      {
+        initialMode: "project-files",
+        keys: savedSetKeys,
+        notify: (message) => notifications.push(message),
+        contextSets: {
+          list: () => [],
+          save: () => {
+            throw new Error("unused");
+          },
+          delete: () => false,
+        },
+      },
+      () => {},
+    );
+
+    component.handleInput(" ");
+    component.handleInput("l");
+    component.handleInput("d");
+
+    expect(notifications).toEqual(["No saved context sets exist", "No saved context sets exist"]);
+    expect(confirmPickerSelection(component["state"], candidates)).toEqual(["README.md"]);
   });
 });

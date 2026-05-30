@@ -3,7 +3,9 @@
 ## Purpose
 
 TBD - created by archiving change implement-microscope-picker. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: File picker command
 
 The extension SHALL provide a `/microscope` command that lets an interactive user select a repository file and insert it into the prompt editor as an `@relative/path` reference.
@@ -343,4 +345,3 @@ The extension SHALL dedupe selected relative paths before inserting file referen
 
 - **WHEN** an interactive user confirms selected rows resolving to `src/a.ts`, `src/b.ts`, and another `src/a.ts` in that order
 - **THEN** the prompt editor SHALL append `@src/a.ts @src/b.ts` in first-occurrence order
-

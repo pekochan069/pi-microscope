@@ -13,7 +13,12 @@ describe("microscope config", () => {
 
   test("project settings override global settings field by field", () => {
     const result = resolveMicroscopeOptions(
-      { piMicroscope: { shortcut: "ctrl+p", keys: { gitChangedMode: ["<C-x>"] } } },
+      {
+        piMicroscope: {
+          shortcut: "ctrl+p",
+          keys: { gitChangedMode: ["<C-x>"], saveContextSet: ["<A-s>"] },
+        },
+      },
       { piMicroscope: { keys: { projectMode: ["<C-f>"] }, preview: { maxLines: 20 } } },
     );
 
@@ -21,6 +26,7 @@ describe("microscope config", () => {
     expect(result.options.shortcut).toBe("ctrl+p");
     expect(result.options.keys.gitChangedMode).toEqual(["ctrl+x"]);
     expect(result.options.keys.projectMode).toEqual(["ctrl+f"]);
+    expect(result.options.keys.saveContextSet).toEqual(["alt+s"]);
     expect(result.options.preview.maxLines).toBe(20);
     expect(result.options.preview.maxBytes).toBe(DEFAULT_MICROSCOPE_OPTIONS.preview.maxBytes);
   });
@@ -47,9 +53,12 @@ describe("microscope config", () => {
     expect(result.options.initialMode).toBe("content-grep");
   });
 
-  test("includes default content grep keys", () => {
+  test("includes default content grep and saved-set keys", () => {
     expect(DEFAULT_MICROSCOPE_OPTIONS.keys.contentGrepMode).toEqual(["ctrl+r"]);
     expect(DEFAULT_MICROSCOPE_OPTIONS.keys.modeToggle).toEqual(["tab"]);
+    expect(DEFAULT_MICROSCOPE_OPTIONS.keys.saveContextSet).toEqual(["alt+s"]);
+    expect(DEFAULT_MICROSCOPE_OPTIONS.keys.loadContextSet).toEqual(["alt+l"]);
+    expect(DEFAULT_MICROSCOPE_OPTIONS.keys.deleteContextSet).toEqual(["alt+d"]);
   });
 
   test("normalizes Vim-style key notation", () => {
